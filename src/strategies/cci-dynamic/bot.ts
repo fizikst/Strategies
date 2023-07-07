@@ -10,6 +10,9 @@ import { DebutOptions, BaseTransport, OrderType, Candle } from '@debut/types';
 import { orders } from '@debut/plugin-utils';
 import { VirtualTakesOptions, virtualTakesPlugin, VirtualTakesPluginAPI } from '@debut/plugin-virtual-takes';
 
+import fs from 'fs';
+import path from 'path';
+
 export interface CCIDynamicBotOptions
     extends SessionPluginOptions,
         VirtualTakesOptions,
@@ -45,6 +48,8 @@ export class CCIDynamic extends Debut {
     private cciValues: number[] = [];
     private insideNormal = false;
     private barsFromLastSignal = 0;
+    private writeStream: fs.WriteStream;
+    // private writeLog: (msg:string) => void;
 
     constructor(transport: BaseTransport, opts: CCIDynamicBotOptions) {
         super(transport, opts);
@@ -67,6 +72,43 @@ export class CCIDynamic extends Debut {
         );
         this.cci = new CCI(this.opts.cciPeriod);
         this.levels.create(this.opts.levelPeriod);
+
+        // Путь к файлу относительно корня проекта
+        const filePath = path.join(__dirname, 'orders.log');
+
+        // Проверка существования файла
+        if (!fs.existsSync(filePath)) {
+            try {
+                // Создаем файл
+                fs.writeFileSync(filePath, '');
+                console.log('Файл успешно создан.');
+            } catch (err) {
+                console.error('Ошибка при создании файла:', err);
+            }
+        }
+
+        // Создаем поток для записи данных в файл
+        this.writeStream = fs.createWriteStream(filePath, { flags: 'a' }); // Флаг 'a' означает дозапись (append)
+    }
+
+    writeLog(message: string) {
+        this.writeStream.write(`${message}\n`);
+    }
+
+    async onDispose() {
+        this.writeStream.end();
+    }
+
+    async afterCloseOrder(c: number) {
+        const fromOrder = this.orders[0];
+        const order = await this.closeAll();
+        const buy = String(order[0].openId)?.split('-');
+        const sell = String(order[0].orderId)?.split('-');
+
+        const profit = orders.getCurrencyProfit(fromOrder, +sell[2]);
+        this.writeLog(
+            `profit: ${profit}\nbuy: ${buy[2]} (${buy[1]})\nsell: ${sell[2]}\nbalance:${this.opts.amount}\n\n`,
+        );
     }
 
     public getSamplerType(levelType: number) {
@@ -107,11 +149,14 @@ export class CCIDynamic extends Debut {
                     },
                 ],
                 levels: [],
+                inChart: true,
             },
         ];
     };
 
     async openMonitoring(c: number) {
+        let order = null;
+        let profit = null;
         const first = this.cciValues[2];
         const second = this.cciValues[1];
 
@@ -133,7 +178,7 @@ export class CCIDynamic extends Debut {
         }
 
         if (currentOrder && ((target && currentOrder.type !== target) || (this.opts.closeAtZero && isZeroLevel))) {
-            await this.closeAll();
+            await this.afterCloseOrder(currentOrder.price);
         }
 
         if (target && !this.ordersCount) {
@@ -141,7 +186,8 @@ export class CCIDynamic extends Debut {
         }
     }
 
-    async onCandle({ h, l, c }: Candle) {
+    async onCandle(can: Candle) {
+        const { h, l, c } = can;
         this.atrValue = this.atr.nextValue(h, l, c);
         this.cciValue = this.cci.nextValue(h, l, c);
 
@@ -166,11 +212,19 @@ export class CCIDynamic extends Debut {
 
         [this.upperLevel, this.lowerLevel] = this.levels.nextValue(this.cciValue);
 
+        // if (this.ordersCount > 0) {
+        //     const profit = orders.getCurrencyProfit(this.orders[0], c);
+        //     if (profit < -50) {
+        //         await this.closeAll();
+        //         return
+        //     }
+        // }
+
         if (this.ordersCount > 0 && second * third < 0) {
             const profit = orders.getCurrencyProfit(this.orders[0], c);
 
             if (profit / (this.opts.amount * this.opts.equityLevel) > 0.002) {
-                await this.closeAll();
+                await this.afterCloseOrder(c);
             }
         }
 
@@ -192,6 +246,7 @@ export class CCIDynamic extends Debut {
         const order = await this.createOrder(target);
         let take = 0;
         let stop = 0;
+        const dt = `${new Date(order.time).getHours()}:${new Date(order.time).getMinutes()}`;
 
         if (this.opts.manual) {
             if (target === OrderType.BUY) {

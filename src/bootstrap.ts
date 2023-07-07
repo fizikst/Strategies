@@ -37,9 +37,11 @@ const createTransport = (broker: string) => {
 
 const bootSettings = {
     // Choose a strategy
-    strategyName: 'FTBot',
+    strategyName: 'CCIDynamic',
+    // strategyName: 'CustomFirst',
     // Select a ticker, which exists in the cfgs.ts file
-    tickName: 'BTCUSDT',
+    // tickName: 'CRVUSDT',
+    tickName: 'ENSUSDT',
     // Choose the number of days for training
     learnDays: 0,
 };
@@ -60,6 +62,8 @@ async function bootstrap() {
     const config = configs[bootSettings.tickName] as SpikesGOptions;
     // Create a robot in Production mode
     const bot = await meta.create(getTransport(config), config, WorkingEnv.production);
+
+    await bot.learn(60);
 
     if (bootSettings.learnDays) {
         // Start prelaunch strategy training, for a smooth transition to combat mode,
