@@ -2,16 +2,19 @@ import { ATR, CCI, EMA, LWMA, SMA, UniLevel, WEMA } from '@debut/indicators';
 import { SessionPluginOptions, sessionPlugin } from '@debut/plugin-session';
 import { OrderExpireOptions, orderExpirePlugin } from '@debut/plugin-order-expire';
 import { reinvestPlugin } from '@debut/plugin-reinvest';
+import { reportToTelegramPlugin, ReportToTelegramOptions } from '@debut/plugin-report-to-telegram';
 import { ReportPluginAPI, IndicatorsSchema } from '@debut/plugin-report';
 import { statsPlugin, StatsPluginAPI } from '@debut/plugin-stats';
 import { ShutdownPluginAPI } from '@debut/plugin-genetic-shutdown';
 import { Debut } from '@debut/community-core';
 import { DebutOptions, BaseTransport, OrderType, Candle } from '@debut/types';
-import { orders } from '@debut/plugin-utils';
+import { orders, cli } from '@debut/plugin-utils';
 import { VirtualTakesOptions, virtualTakesPlugin, VirtualTakesPluginAPI } from '@debut/plugin-virtual-takes';
 
 import fs from 'fs';
 import path from 'path';
+
+const { telegramBotToken, telegramChannelId } = cli.getTokens();
 
 export interface CCIDynamicBotOptions
     extends SessionPluginOptions,
@@ -60,6 +63,10 @@ export class CCIDynamic extends Debut {
             virtualTakesPlugin(this.opts),
             statsPlugin(this.opts),
             orderExpirePlugin(this.opts),
+            reportToTelegramPlugin({
+                botToken: telegramBotToken,
+                chatId: telegramChannelId,
+            }),
         ]);
 
         this.atr = new ATR(this.opts.atrPeriod);
@@ -188,6 +195,7 @@ export class CCIDynamic extends Debut {
 
     async onCandle(can: Candle) {
         const { h, l, c } = can;
+        console.log(can);
         this.atrValue = this.atr.nextValue(h, l, c);
         this.cciValue = this.cci.nextValue(h, l, c);
 
@@ -246,7 +254,6 @@ export class CCIDynamic extends Debut {
         const order = await this.createOrder(target);
         let take = 0;
         let stop = 0;
-        const dt = `${new Date(order.time).getHours()}:${new Date(order.time).getMinutes()}`;
 
         if (this.opts.manual) {
             if (target === OrderType.BUY) {
