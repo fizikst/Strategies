@@ -43,7 +43,7 @@ const bootSettings = {
     // tickName: 'CRVUSDT',
     tickName: 'ENSUSDT',
     // Choose the number of days for training
-    learnDays: 0,
+    learnDays: 30,
 };
 
 // Main function for launching a trading strategy
@@ -63,7 +63,7 @@ async function bootstrap() {
     // Create a robot in Production mode
     const bot = await meta.create(getTransport(config), config, WorkingEnv.production);
 
-    await bot.learn(60);
+    await bot.learn(30);
 
     if (bootSettings.learnDays) {
         // Start prelaunch strategy training, for a smooth transition to combat mode,

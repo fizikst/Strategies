@@ -10,9 +10,7 @@ import { Debut } from '@debut/community-core';
 import { DebutOptions, BaseTransport, OrderType, Candle } from '@debut/types';
 import { orders, cli } from '@debut/plugin-utils';
 import { VirtualTakesOptions, virtualTakesPlugin, VirtualTakesPluginAPI } from '@debut/plugin-virtual-takes';
-
-import fs from 'fs';
-import path from 'path';
+// import { gridPlugin, GridPluginOptions, Grid, GridPluginAPI } from '@debut/plugin-grid';
 
 const { telegramBotToken, telegramChannelId } = cli.getTokens();
 
@@ -20,27 +18,29 @@ export interface CCIDynamicBotOptions
     extends SessionPluginOptions,
         VirtualTakesOptions,
         OrderExpireOptions,
+        // GridPluginOptions,
         DebutOptions {
     atrPeriod: number;
     cciPeriod: number;
-    stopTakeRatio: number;
+    // stopTakeRatio: number;
     levelPeriod: number;
     levelRedunant: number;
     levelSampleCount: number; // 1 - 3
     levelSampleType: number; // 1 - 3
     levelMultiplier: number;
     levelOffset: number;
-    zeroClose: boolean;
-    atrMultiplier: number;
+    // zeroClose: boolean;
+    // atrMultiplier: number;
     cciAtr: boolean;
     reinvest?: boolean;
     signalFilter?: boolean;
     strictLevel?: boolean;
+    // takeProfit: number;
 }
 
-export class CCIDynamic extends Debut {
+export class CCIDynamicGrid extends Debut {
     declare opts: CCIDynamicBotOptions;
-    declare plugins: StatsPluginAPI & ReportPluginAPI & ShutdownPluginAPI & VirtualTakesPluginAPI;
+    declare plugins: StatsPluginAPI & ReportPluginAPI & ShutdownPluginAPI & VirtualTakesPluginAPI; // & GridPluginAPI;
     private cci: CCI;
     private levels: UniLevel<typeof SMA | typeof EMA | typeof WEMA | typeof LWMA>;
     private atr: ATR;
@@ -51,17 +51,18 @@ export class CCIDynamic extends Debut {
     private cciValues: number[] = [];
     private insideNormal = false;
     private barsFromLastSignal = 0;
-    private writeStream: fs.WriteStream;
+    // private grid: Grid;
 
     constructor(transport: BaseTransport, opts: CCIDynamicBotOptions) {
         super(transport, opts);
 
         this.registerPlugins([
-            this.opts.from && this.opts.to && sessionPlugin(this.opts),
+            // this.opts.from && this.opts.to && sessionPlugin(this.opts),
             this.opts.reinvest ? reinvestPlugin() : null,
-            virtualTakesPlugin(this.opts),
+            // virtualTakesPlugin(this.opts),
             statsPlugin(this.opts),
-            orderExpirePlugin(this.opts),
+            // orderExpirePlugin(this.opts),
+            // gridPlugin(this.opts),
             reportToTelegramPlugin({
                 botToken: telegramBotToken,
                 chatId: telegramChannelId,
@@ -78,43 +79,10 @@ export class CCIDynamic extends Debut {
         );
         this.cci = new CCI(this.opts.cciPeriod);
         this.levels.create(this.opts.levelPeriod);
-
-        // Путь к файлу относительно корня проекта
-        const filePath = path.join(__dirname, 'orders.log');
-
-        // Проверка существования файла
-        if (!fs.existsSync(filePath)) {
-            try {
-                // Создаем файл
-                fs.writeFileSync(filePath, '');
-                console.log('Файл успешно создан.');
-            } catch (err) {
-                console.error('Ошибка при создании файла:', err);
-            }
-        }
-
-        // Создаем поток для записи данных в файл
-        this.writeStream = fs.createWriteStream(filePath, { flags: 'a' }); // Флаг 'a' означает дозапись (append)
-    }
-
-    writeLog(message: string) {
-        this.writeStream.write(`${message}\n`);
     }
 
     async onDispose() {
-        this.writeStream.end();
-    }
-
-    async afterCloseOrder(c: number) {
-        const fromOrder = this.orders[0];
-        const order = await this.closeAll();
-        const buy = String(order[0].openId)?.split('-');
-        const sell = String(order[0].orderId)?.split('-');
-
-        const profit = orders.getCurrencyProfit(fromOrder, +sell[2]);
-        this.writeLog(
-            `profit: ${profit}\nbuy: ${buy[2]} (${buy[1]})\nsell: ${sell[2]}\nbalance:${this.opts.amount}\n\n`,
-        );
+        // console.log('444444444444')
     }
 
     public getSamplerType(levelType: number) {
@@ -131,7 +99,12 @@ export class CCIDynamic extends Debut {
     }
 
     public getIndicators = (): IndicatorsSchema => {
-        return [
+        const schema: IndicatorsSchema = [
+            // {
+            //     name: 'grid',
+            //     figures: [],
+            //     inChart: true,
+            // },
             {
                 name: 'cci',
                 figures: [
@@ -158,11 +131,26 @@ export class CCIDynamic extends Debut {
                 inChart: true,
             },
         ];
+        // for (let i = 0; i < this.opts.levelsCount; i++) {
+        //     schema[0].figures.push({
+        //         name: `uplevel-${i}`,
+        //         getValue: () => {
+        //             return this.grid?.upLevels[i]?.price;
+        //         },
+        //     });
+
+        //     schema[0].figures.push({
+        //         name: `lowlevel-${i}`,
+        //         getValue: () => {
+        //             return this.grid?.lowLevels[i]?.price;
+        //         },
+        //     });
+        // }
+
+        return schema;
     };
 
     async openMonitoring(c: number) {
-        let order = null;
-        let profit = null;
         const first = this.cciValues[2];
         const second = this.cciValues[1];
 
@@ -173,8 +161,10 @@ export class CCIDynamic extends Debut {
         const isZeroLevel = first * second < 0;
 
         if (overbought) {
-            // target = OrderType.SELL;
+            // перекуплен
+            target = OrderType.SELL;
         } else if (oversold) {
+            // перепродан
             target = OrderType.BUY;
         }
 
@@ -183,17 +173,40 @@ export class CCIDynamic extends Debut {
             return;
         }
 
-        if (currentOrder && ((target && currentOrder.type !== target) || (this.opts.closeAtZero && isZeroLevel))) {
-            await this.afterCloseOrder(currentOrder.price);
+        // if (currentOrder && ((target && currentOrder.type !== target) || (this.opts.closeAtZero && isZeroLevel))) {
+        // await this.closeAll();
+        // }
+
+        let deltaPrice = Infinity;
+        if (this.orders?.length > 0) {
+            let sum = 0;
+            let lots = 0;
+            let koef = this.orders.length / 100;
+            if (this.orders.length > 5) {
+                koef = (this.orders.length - 4) / 10;
+            }
+
+            for (let i = 0; i < this.orders.length; i++) {
+                const rdr = this.orders[i];
+                sum += rdr.price * rdr.lots;
+                lots += rdr.lots;
+            }
+
+            deltaPrice = sum / lots - (koef * sum) / lots;
         }
 
-        if (target && !this.ordersCount) {
-            await this.placeOrder(c, target);
+        if (target === OrderType.BUY) {
+            if (this.orders?.length < 10) {
+                if (c <= deltaPrice) {
+                    await this.placeOrder(c, target);
+                }
+            }
         }
     }
 
     async onCandle(can: Candle) {
         const { h, l, c } = can;
+        // this.grid = this.plugins.grid.getGrid();
         // console.log(can);
         this.atrValue = this.atr.nextValue(h, l, c);
         this.cciValue = this.cci.nextValue(h, l, c);
@@ -220,10 +233,11 @@ export class CCIDynamic extends Debut {
         [this.upperLevel, this.lowerLevel] = this.levels.nextValue(this.cciValue);
 
         if (this.ordersCount > 0 && second * third < 0) {
-            const profit = orders.getCurrencyProfit(this.orders[0], c);
+            const profit = orders.getCurrencyBatchProfit(this.orders, c);
 
             if (profit / (this.opts.amount * this.opts.equityLevel) > 0.002) {
-                await this.afterCloseOrder(c);
+                // console.log()
+                await this.closeAll();
             }
         }
 
@@ -242,23 +256,24 @@ export class CCIDynamic extends Debut {
     }
 
     private async placeOrder(c: number, target: OrderType) {
+        // console.log()
         const order = await this.createOrder(target);
-        let take = 0;
-        let stop = 0;
+        // let take = 0;
+        // let stop = 0;
 
-        if (this.opts.manual) {
-            if (target === OrderType.BUY) {
-                take = c + this.atrValue * this.opts.atrMultiplier;
-                stop = c - this.atrValue * (this.opts.atrMultiplier / this.opts.stopTakeRatio);
-            } else {
-                take = c - this.atrValue * this.opts.atrMultiplier;
-                stop = c + this.atrValue * (this.opts.atrMultiplier / this.opts.stopTakeRatio);
-            }
+        // if (this.opts.manual) {
+        //     if (target === OrderType.BUY) {
+        //         take = c + this.atrValue * this.opts.atrMultiplier;
+        //         stop = c - this.atrValue * (this.opts.atrMultiplier / this.opts.stopTakeRatio);
+        //     } else {
+        //         take = c - this.atrValue * this.opts.atrMultiplier;
+        //         stop = c + this.atrValue * (this.opts.atrMultiplier / this.opts.stopTakeRatio);
+        //     }
 
-            this.plugins.takes.setPricesForOrder(order.cid, take, stop);
-        }
+        //     this.plugins.takes.setPricesForOrder(order.cid, take, stop);
+        // }
 
-        this.insideNormal = false;
+        // this.insideNormal = false;
         return order;
     }
 }

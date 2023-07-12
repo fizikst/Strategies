@@ -18,5 +18,10 @@
         "name": "CCIDynamic",
         "path": "./out/strategies/cci-dynamic/",
         "src": "./src/strategies/cci-dynamic/"
+    },
+    {
+        "name": "CCIDynamicGrid",
+        "path": "./out/strategies/cci-dynamic-grid/",
+        "src": "./src/strategies/cci-dynamic-grid/"
     }
 ]
