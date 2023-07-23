@@ -18,5 +18,10 @@
         "name": "CCIDynamic",
         "path": "./out/strategies/cci-dynamic/",
         "src": "./src/strategies/cci-dynamic/"
+    },
+    {
+        "name": "str1",
+        "path": "./out/strategies/str1/",
+        "src": "./src/strategies/str1/"
     }
 ]
