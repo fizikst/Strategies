@@ -12,7 +12,7 @@
         "genetic": "genetic --",
         "finder": "finder --",
         "testing": "tester --",
-        "debug": "npm run compile && npm run testing -- --ticker=BTCUSDT --bot=SpikesG --days=40",
+        "debug": "npm run compile && npm run testing  -- --ticker=ENSUSDT --bot=CCIDynamic1 --days=2 --gap=1",
         "debugAndCompile": "npm run compile && npm run testing  -- --ticker=ENSUSDT --bot=CustomFirst --days=2 --gap=1",
         "debugAndCompileCCI": "npm run compile && npm run testing  -- --ticker=ENSUSDT --bot=CCIDynamic --days=2 --gap=1",
         "debugAndCompileCCIandGrid": "npm run compile && npm run testing  -- --ticker=ENSUSDT --bot=CCIDynamicGrid --days=2 --gap=1",

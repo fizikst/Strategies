@@ -1,0 +1,297 @@
+import { ATR, CCI, EMA, LWMA, SMA, UniLevel, WEMA } from '@debut/indicators';
+import { SessionPluginOptions, sessionPlugin } from '@debut/plugin-session';
+import { OrderExpireOptions, orderExpirePlugin } from '@debut/plugin-order-expire';
+import { reinvestPlugin } from '@debut/plugin-reinvest';
+import { reportToTelegramPlugin, ReportToTelegramOptions } from '@debut/plugin-report-to-telegram';
+import { ReportPluginAPI, IndicatorsSchema } from '@debut/plugin-report';
+import { statsPlugin, StatsPluginAPI } from '@debut/plugin-stats';
+import { ShutdownPluginAPI } from '@debut/plugin-genetic-shutdown';
+import { Debut } from '@debut/community-core';
+import { DebutOptions, BaseTransport, OrderType, Candle } from '@debut/types';
+import { orders, cli } from '@debut/plugin-utils';
+import { virtualTakesPlugin, VirtualTakesPluginAPI } from '@debut/plugin-virtual-takes';
+import fs from 'fs';
+import path from 'path';
+
+const { telegramBotToken, telegramChannelId } = cli.getTokens();
+
+export interface CCIDynamic1BotOptions
+    extends SessionPluginOptions,
+        // VirtualTakesOptions,
+        OrderExpireOptions,
+        DebutOptions {
+    atrPeriod: number;
+    cciPeriod: number;
+    stopTakeRatio: number;
+    levelPeriod: number;
+    levelRedunant: number;
+    levelSampleCount: number; // 1 - 3
+    levelSampleType: number; // 1 - 3
+    levelMultiplier: number;
+    levelOffset: number;
+    zeroClose: boolean;
+    atrMultiplier: number;
+    cciAtr: boolean;
+    reinvest?: boolean;
+    signalFilter?: boolean;
+    strictLevel?: boolean;
+    takeProfit?: number;
+    stopLoss?: number;
+}
+
+export class CCIDynamic1 extends Debut {
+    declare opts: CCIDynamic1BotOptions;
+    declare plugins: StatsPluginAPI & ReportPluginAPI & ShutdownPluginAPI;
+    private cci: CCI;
+    private levels: UniLevel<typeof SMA | typeof EMA | typeof WEMA | typeof LWMA>;
+    private atr: ATR;
+    private cciValue: number;
+    private atrValue: number;
+    private upperLevel: number;
+    private lowerLevel: number;
+    private cciValues: number[] = [];
+    private insideNormal = false;
+    private barsFromLastSignal = 0;
+    private failOrder = 0;
+    private originEquityLevel = 0;
+    private additionalProfit = 0;
+    private writeStream: fs.WriteStream;
+
+    constructor(transport: BaseTransport, opts: CCIDynamic1BotOptions) {
+        super(transport, opts);
+
+        this.registerPlugins([
+            this.opts.from && this.opts.to && sessionPlugin(this.opts),
+            this.opts.reinvest ? reinvestPlugin() : null,
+            // virtualTakesPlugin(this.opts),
+            statsPlugin(this.opts),
+            // orderExpirePlugin(this.opts),
+            reportToTelegramPlugin({
+                botToken: telegramBotToken,
+                chatId: telegramChannelId,
+            }),
+        ]);
+
+        this.atr = new ATR(this.opts.atrPeriod);
+        this.levels = new UniLevel(
+            this.opts.levelRedunant,
+            this.getSamplerType(this.opts.levelSampleType),
+            this.opts.levelSampleCount,
+            this.opts.levelMultiplier,
+            this.opts.levelOffset,
+        );
+        this.cci = new CCI(this.opts.cciPeriod);
+        this.levels.create(this.opts.levelPeriod);
+        this.originEquityLevel = this.opts.equityLevel;
+        this.additionalProfit = this.opts.amount * this.opts.equityLevel * (this.opts.takeProfit / 100);
+
+        // Путь к файлу относительно корня проекта
+        const filePath = path.join(__dirname, 'orders.log');
+
+        // Проверка существования файла
+        if (!fs.existsSync(filePath)) {
+            try {
+                // Создаем файл
+                fs.writeFileSync(filePath, '');
+                console.log('Файл успешно создан.');
+            } catch (err) {
+                console.error('Ошибка при создании файла:', err);
+            }
+        }
+
+        // Создаем поток для записи данных в файл
+        this.writeStream = fs.createWriteStream(filePath, { flags: 'a' }); // Флаг 'a' означает дозапись (append)
+    }
+
+    writeLog(message: string) {
+        this.writeStream.write(`${message}\n`);
+    }
+
+    async onDispose() {
+        this.writeStream.end();
+    }
+
+    async afterCloseOrder(c: number) {
+        const order = await this.closeAll();
+    }
+
+    public getSamplerType(levelType: number) {
+        switch (levelType) {
+            case 1:
+                return WEMA;
+            case 2:
+                return SMA;
+            case 3:
+                return EMA;
+            case 4:
+                return LWMA;
+        }
+    }
+
+    public getIndicators = (): IndicatorsSchema => {
+        return [
+            {
+                name: 'cci',
+                figures: [
+                    {
+                        name: 'cci',
+                        getValue: () => {
+                            return this.cciValue;
+                        },
+                    },
+                    {
+                        name: 'overbought',
+                        getValue: () => {
+                            return this.upperLevel;
+                        },
+                    },
+                    {
+                        name: 'oversold',
+                        getValue: () => {
+                            return this.lowerLevel;
+                        },
+                    },
+                ],
+                levels: [],
+                inChart: true,
+            },
+        ];
+    };
+
+    async openMonitoring(c: number) {
+        let order = null;
+        let profit = null;
+        const first = this.cciValues[2];
+        const second = this.cciValues[1];
+
+        let target: OrderType;
+        const overbought = (!this.opts.strictLevel || second < this.upperLevel) && first >= this.upperLevel;
+        const oversold = (!this.opts.signalFilter || second > this.lowerLevel) && first <= this.lowerLevel;
+        const currentOrder = this.orders[0];
+        const isZeroLevel = first * second < 0;
+
+        if (overbought) {
+            // target = OrderType.SELL;
+        } else if (oversold) {
+            target = OrderType.BUY;
+        }
+
+        // DOGE loogs good with 3
+        if (this.opts.signalFilter && target && this.barsFromLastSignal < 5) {
+            return;
+        }
+
+        // if (currentOrder && ((target && currentOrder.type !== target) || (this.opts.closeAtZero && isZeroLevel))) {
+        //     await this.afterCloseOrder(currentOrder.price);
+        // }
+
+        if (target && !this.ordersCount) {
+            await this.placeOrder(c, target);
+        }
+    }
+
+    async onCandle(can: Candle) {
+        const { h, l, c } = can;
+        // console.log(can);
+        this.atrValue = this.atr.nextValue(h, l, c);
+        this.cciValue = this.cci.nextValue(h, l, c);
+
+        if (this.cciValue === undefined) {
+            return;
+        }
+
+        if (this.opts.cciAtr) {
+            this.cciValue = this.cciValue / this.atrValue;
+        }
+        this.barsFromLastSignal++;
+
+        if (this.cciValues.length === 3) {
+            this.cciValues.shift();
+        }
+
+        this.cciValues.push(this.cciValue);
+
+        const first = this.cciValues[0];
+        const second = this.cciValues[1];
+        const third = this.cciValues[2];
+
+        [this.upperLevel, this.lowerLevel] = this.levels.nextValue(this.cciValue);
+
+        if (this.ordersCount > 0) {
+            const sellPrice =
+                (this.additionalProfit + this.orders[0].lots * this.orders[0].price) / this.orders[0].lots;
+            // second * third < 0 ||
+            const profit = orders.getCurrencyProfit(this.orders[0], c);
+            if (c > sellPrice) {
+                this.opts.equityLevel = this.originEquityLevel;
+                this.failOrder = 0;
+                this.additionalProfit = this.opts.amount * this.opts.equityLevel * (this.opts.takeProfit / 100);
+                await this.afterCloseOrder(c);
+            }
+            // const profit = orders.getCurrencyProfit(this.orders[0], c);
+
+            // if (profit / (this.opts.amount * this.originEquityLevel) > 0.002) {
+            // this.opts.equityLevel = this.originEquityLevel
+            // this.failOrder = 0
+            //     await this.afterCloseOrder(c);
+            // }
+        }
+
+        if (this.ordersCount > 0) {
+            const profit = orders.getCurrencyProfit(this.orders[0], c);
+            if (profit < 0 && profit < -(this.opts.amount * this.opts.equityLevel * (this.opts.stopLoss / 100))) {
+                console.log(profit);
+                this.additionalProfit = this.additionalProfit - profit;
+
+                this.failOrder = this.failOrder + 1;
+                // if (this.failOrder > 5) {
+                //     this.writeLog(
+                //         `failorders: ${this.failOrder }\nadditionalProfit: ${this.additionalProfit}\n${new Date(this.orders[0].time)}\n`,
+                //     );
+                // }
+                this.opts.equityLevel = this.originEquityLevel * 2 ** this.failOrder;
+                // if (this.failOrder > 3) {
+                //     this.opts.equityLevel = this.originEquityLevel
+                //     this.failOrder = 0
+                //     this.additionalProfit = (this.opts.amount * this.opts.equityLevel) * (this.opts.takeProfit/100)
+                // }
+
+                await this.afterCloseOrder(c);
+            }
+        }
+
+        this.insideNormal =
+            this.insideNormal ||
+            (first < this.lowerLevel && second > this.lowerLevel) ||
+            (first > this.upperLevel && second < this.upperLevel) ||
+            (first > 0 && second < 0) ||
+            (first < 0 && second > 0);
+
+        if (!this.upperLevel || !this.lowerLevel || !this.insideNormal || !this.atrValue) {
+            return;
+        }
+
+        await this.openMonitoring(c);
+    }
+
+    private async placeOrder(c: number, target: OrderType) {
+        const order = await this.createOrder(target);
+        // let take = 0;
+        // let stop = 0;
+
+        // if (this.opts.manual) {
+        //     if (target === OrderType.BUY) {
+        //         take = c + this.atrValue * this.opts.atrMultiplier;
+        //         stop = c - this.atrValue * (this.opts.atrMultiplier / this.opts.stopTakeRatio);
+        //     } else {
+        //         take = c - this.atrValue * this.opts.atrMultiplier;
+        //         stop = c + this.atrValue * (this.opts.atrMultiplier / this.opts.stopTakeRatio);
+        //     }
+
+        //     this.plugins.takes.setPricesForOrder(order.cid, take, stop);
+        // }
+
+        this.insideNormal = false;
+        return order;
+    }
+}
