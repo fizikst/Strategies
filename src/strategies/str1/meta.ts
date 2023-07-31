@@ -6,15 +6,15 @@ import { str1, str1Options } from './bot';
 import { BaseTransport, DebutMeta, GeneticSchema, WorkingEnv } from '@debut/types';
 
 export const parameters: GeneticSchema<str1Options> = {
-    shortPeriod: { min: 5, max: 50, int: true },
-    longPeriod: { min: 100, max: 200, int: true },
+    // shortPeriod: { min: 5, max: 50, int: true },
+    // longPeriod: { min: 100, max: 200, int: true },
 
-    rsiPeriod: { min: 2, max: 100, int: true },
-    rsiOversold: { min: 0, max: 30, int: true },
+    rsiPeriod: { min: 10, max: 100, int: true },
+    rsiOversold: { min: 15, max: 30, int: true },
     rsiOverbought: { min: 70, max: 100, int: true },
 
-    sr_sell: { min: 0.5, max: 0.9 },
-    sr_buy: { min: 0.1, max: 0.3 },
+    // sr_sell: { min: 0.5, max: 0.9 },
+    // sr_buy: { min: 0.1, max: 0.3 },
 };
 
 const meta: DebutMeta = {
@@ -63,6 +63,10 @@ const meta: DebutMeta = {
     },
 
     validate(cfg: str1Options) {
+        if (cfg.rsiOversold + cfg.rsiOverbought !== 100) {
+            return false;
+        }
+
         return cfg;
     },
 };

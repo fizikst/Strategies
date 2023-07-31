@@ -13,6 +13,7 @@
         "finder": "finder --",
         "testing": "tester --",
         "debug": "npm run compile && npm run testing  -- --ticker=ENSUSDT --bot=str1 --days=30 --gap=1",
+        "debugGenetic": "npm run compile && npm run genetic -- --bot=str1 --ticker=ENSUSDT --days=2 --gap=1 --gen=10 --pop=11 --log --amount=1000  --crypto",
         "getAccountId": "ts-node ./src/tools/getAccountId.ts"
     },
     "author": "Dmitry Yurov",

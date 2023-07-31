@@ -72,19 +72,32 @@ export class str1 extends Debut {
                 ],
                 inChart: true,
             },
-            {
-                name: 'figure',
-                figures: [
-                    {
-                        name: 'rsi',
-                        type: FigureType.bar,
-                        getValue: () => {
-                            return this.rsiValue;
-                        },
-                    },
-                ],
-                inChart: false,
-            },
+            // {
+            //     name: 'figure',
+            //     figures: [
+            //         {
+            //             name: 'Overbought',
+            //             type: FigureType.dot,
+            //             getValue: () => {
+            //                 return 70;
+            //             },
+            //         },
+            //     ],
+            //     inChart: true,
+            // },
+            // {
+            //     name: 'figure',
+            //     figures: [
+            //         {
+            //             name: 'Oversold',
+            //             type: FigureType.dot,
+            //             getValue: () => {
+            //                 return 30;
+            //             },
+            //         },
+            //     ],
+            //     inChart: true,
+            // },
         ];
     };
 
@@ -104,19 +117,22 @@ export class str1 extends Debut {
 
         // console.log(MACDSignal, RSISignal, SRSignal)
         if (
+            RSISignal === 1 &&
             // MACDSignal === 1 && RSISignal===1 && SRSignal === 1
-            ((MACDSignal === 1 && RSISignal === 1) ||
-                (MACDSignal === 1 && SRSignal === 1) ||
-                (RSISignal === 1 && SRSignal === 1)) &&
+            // ((MACDSignal === 1 && RSISignal === 1) ||
+            //     (MACDSignal === 1 && SRSignal === 1) ||
+            //     (RSISignal === 1 && SRSignal === 1)) &&
             !this.orders.length
         ) {
             await this.createOrder(OrderType.BUY);
             // buy
         } else if (
+            RSISignal === 0 &&
+            this.orders.length
             // MACDSignal === 0 && RSISignal===0 && SRSignal === 0
-            (MACDSignal === 0 && RSISignal === 0) ||
-            (MACDSignal === 0 && SRSignal === 0) ||
-            (RSISignal === 0 && SRSignal === 0)
+            // (MACDSignal === 0 && RSISignal === 0) ||
+            // (MACDSignal === 0 && SRSignal === 0) ||
+            // (RSISignal === 0 && SRSignal === 0)
         ) {
             await this.closeAll();
             // cach
