@@ -1,11 +1,12 @@
-import { BinanceTransport, TinkoffTransport, AlpacaTransport } from '@debut/community-core';
+import { BinanceTransport, TinkoffTransport, AlpacaTransport, BybitTransport } from '@debut/community-core';
 import { cli } from '@debut/plugin-utils';
 import { BaseTransport, DebutOptions, WorkingEnv } from '@debut/types';
 import { SpikesGOptions } from './strategies/spikes-grid/bot';
 
 // Create a transport layer for working with a broker
 // Note! The token is required in the ./.tokens.json file
-const { binance, binanceSecret, tinkoff, tinkoffAccountId, alpacaKey, alpacaSecret } = cli.getTokens();
+const { binance, binanceSecret, tinkoff, tinkoffAccountId, alpacaKey, alpacaSecret, bybit, bybitSecret } =
+    cli.getTokens();
 
 const transportCache: Map<string, BaseTransport> = new Map();
 
@@ -28,6 +29,8 @@ const getTransport = (cfg: DebutOptions) => {
 const createTransport = (broker: string) => {
     if (broker === 'binance') {
         return new BinanceTransport(binance, binanceSecret);
+    } else if (broker === 'bybit') {
+        return new BybitTransport(bybit, bybitSecret);
     } else if (broker === 'tinkoff') {
         return new TinkoffTransport(tinkoff, tinkoffAccountId);
     } else if (broker === 'alpaca') {
@@ -41,7 +44,7 @@ const bootSettings = {
     // strategyName: 'CustomFirst',
     // Select a ticker, which exists in the cfgs.ts file
     // tickName: 'CRVUSDT',
-    tickName: 'ENSUSDT',
+    tickName: 'ETHUSDT',
     // Choose the number of days for training
     learnDays: 30,
 };

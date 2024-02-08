@@ -15,7 +15,7 @@
         "debug": "npm run compile && npm run testing -- --ticker=BTCUSDT --bot=SpikesG --days=40",
         "debugAndCompile": "npm run compile && npm run testing  -- --ticker=ENSUSDT --bot=CustomFirst --days=2 --gap=1",
         "debugAndCompileCCI": "npm run compile && npm run testing  -- --ticker=ENSUSDT --bot=CCIDynamic --days=2 --gap=1",
-        "debugAndCompileCCIandGrid": "npm run compile && npm run testing  -- --ticker=ENSUSDT --bot=CCIDynamicGrid --days=2 --gap=1",
+        "debugAndCompileCCIand": "npm run compile && npm run testing  -- --ticker=ETHUSDT --bot=CCIDynamic --days=2 --gap=1",
         "debugAndCompileCCIandGridSpot": "npm run compile && npm run testing  -- --ticker=SBER --bot=CCIDynamicGrid --days=11 --gap=1",
         "geneticDebug": "npm run compile && npm run genetic  -- --ticker=ENSUSDT --bot=CustomFirst --days=2 --gap=1 --gen=10 --pop=10  --inspect-brk",
         "debugtest": "npm run compile && npm run testing  -- --ticker=ENSUSDT --bot=CustomFirst  --days=1",
